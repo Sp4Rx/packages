@@ -51,6 +51,11 @@ class CreateMessage {
   Map<String?, String?> httpHeaders;
 }
 
+class CreateMessageList {
+  CreateMessageList({required this.createMessages});
+  List<CreateMessage> createMessages;
+}
+
 class MixWithOthersMessage {
   MixWithOthersMessage(this.mixWithOthers);
   bool mixWithOthers;
@@ -60,6 +65,7 @@ class MixWithOthersMessage {
 abstract class AndroidVideoPlayerApi {
   void initialize();
   TextureMessage create(CreateMessage msg);
+  TextureMessage multiCreate(List<CreateMessage> msg);
   void dispose(TextureMessage msg);
   void setLooping(LoopingMessage msg);
   void setVolume(VolumeMessage msg);

@@ -8,43 +8,33 @@ import static com.google.android.exoplayer2.Player.REPEAT_MODE_ALL;
 import static com.google.android.exoplayer2.Player.REPEAT_MODE_OFF;
 
 import android.content.Context;
-import android.net.Uri;
 import android.view.Surface;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
+
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.Format;
-import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Player.Listener;
 import com.google.android.exoplayer2.audio.AudioAttributes;
+import com.google.android.exoplayer2.source.ConcatenatingMediaSource2;
 import com.google.android.exoplayer2.source.MediaSource;
-import com.google.android.exoplayer2.source.ProgressiveMediaSource;
-import com.google.android.exoplayer2.source.dash.DashMediaSource;
-import com.google.android.exoplayer2.source.dash.DefaultDashChunkSource;
-import com.google.android.exoplayer2.source.hls.HlsMediaSource;
-import com.google.android.exoplayer2.source.smoothstreaming.DefaultSsChunkSource;
-import com.google.android.exoplayer2.source.smoothstreaming.SsMediaSource;
-import com.google.android.exoplayer2.upstream.DataSource;
-import com.google.android.exoplayer2.upstream.DefaultDataSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
-import com.google.android.exoplayer2.util.Util;
-import io.flutter.plugin.common.EventChannel;
-import io.flutter.view.TextureRegistry;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import io.flutter.plugin.common.EventChannel;
+import io.flutter.view.TextureRegistry;
+
 final class VideoPlayer {
-  private static final String FORMAT_SS = "ss";
-  private static final String FORMAT_DASH = "dash";
-  private static final String FORMAT_HLS = "hls";
-  private static final String FORMAT_OTHER = "other";
 
   private ExoPlayer exoPlayer;
 
@@ -56,122 +46,71 @@ final class VideoPlayer {
 
   private final EventChannel eventChannel;
 
-  private static final String USER_AGENT = "User-Agent";
 
   @VisibleForTesting boolean isInitialized = false;
 
   private final VideoPlayerOptions options;
 
-  private DefaultHttpDataSource.Factory httpDataSourceFactory = new DefaultHttpDataSource.Factory();
+    VideoPlayer(
+            Context context,
+            EventChannel eventChannel,
+            TextureRegistry.SurfaceTextureEntry textureEntry,
+            VideoDataSource videoDataSource,
+            VideoPlayerOptions options) {
+        this.eventChannel = eventChannel;
+        this.textureEntry = textureEntry;
+        this.options = options;
 
-  VideoPlayer(
-      Context context,
-      EventChannel eventChannel,
-      TextureRegistry.SurfaceTextureEntry textureEntry,
-      String dataSource,
-      String formatHint,
-      @NonNull Map<String, String> httpHeaders,
-      VideoPlayerOptions options) {
+        ExoPlayer exoPlayer = new ExoPlayer.Builder(context).build();
+        MediaSource mediaSource = videoDataSource.getMediaSource();
+
+        exoPlayer.setMediaSource(mediaSource);
+        exoPlayer.prepare();
+
+        setUpVideoPlayer(exoPlayer, new QueuingEventSink());
+    }
+
+    VideoPlayer(
+        Context context,
+        EventChannel eventChannel,
+        TextureRegistry.SurfaceTextureEntry textureEntry,
+        List<VideoDataSource> videoDataSources,
+        VideoPlayerOptions options) {
     this.eventChannel = eventChannel;
     this.textureEntry = textureEntry;
     this.options = options;
 
-    ExoPlayer exoPlayer = new ExoPlayer.Builder(context).build();
-    Uri uri = Uri.parse(dataSource);
+        ExoPlayer exoPlayer = new ExoPlayer.Builder(context).build();
+        ConcatenatingMediaSource2.Builder concatenatingMediaSource = new ConcatenatingMediaSource2.Builder();
+        for (VideoDataSource videoDataSource : videoDataSources) {
+            MediaSource mediaSource = videoDataSource.getMediaSource();
+            concatenatingMediaSource.add(mediaSource);
+        }
+        exoPlayer.setMediaSource(concatenatingMediaSource.build());
+        exoPlayer.prepare();
 
-    buildHttpDataSourceFactory(httpHeaders);
-    DataSource.Factory dataSourceFactory =
-        new DefaultDataSource.Factory(context, httpDataSourceFactory);
+        setUpVideoPlayer(exoPlayer, new QueuingEventSink());
+    }
 
-    MediaSource mediaSource = buildMediaSource(uri, dataSourceFactory, formatHint);
-
-    exoPlayer.setMediaSource(mediaSource);
-    exoPlayer.prepare();
-
-    setUpVideoPlayer(exoPlayer, new QueuingEventSink());
-  }
-
-  // Constructor used to directly test members of this class.
-  @VisibleForTesting
-  VideoPlayer(
-      ExoPlayer exoPlayer,
-      EventChannel eventChannel,
-      TextureRegistry.SurfaceTextureEntry textureEntry,
-      VideoPlayerOptions options,
-      QueuingEventSink eventSink,
-      DefaultHttpDataSource.Factory httpDataSourceFactory) {
+    // Constructor used to directly test members of this class.
+    @VisibleForTesting
+    VideoPlayer(
+        ExoPlayer exoPlayer,
+        EventChannel eventChannel,
+        TextureRegistry.SurfaceTextureEntry textureEntry,
+        VideoPlayerOptions options,
+        QueuingEventSink eventSink,
+        DefaultHttpDataSource.Factory httpDataSourceFactory) {
     this.eventChannel = eventChannel;
     this.textureEntry = textureEntry;
-    this.options = options;
-    this.httpDataSourceFactory = httpDataSourceFactory;
+        this.options = options;
 
     setUpVideoPlayer(exoPlayer, eventSink);
   }
 
-  @VisibleForTesting
-  public void buildHttpDataSourceFactory(@NonNull Map<String, String> httpHeaders) {
-    final boolean httpHeadersNotEmpty = !httpHeaders.isEmpty();
-    final String userAgent =
-        httpHeadersNotEmpty && httpHeaders.containsKey(USER_AGENT)
-            ? httpHeaders.get(USER_AGENT)
-            : "ExoPlayer";
-
-    httpDataSourceFactory.setUserAgent(userAgent).setAllowCrossProtocolRedirects(true);
-
-    if (httpHeadersNotEmpty) {
-      httpDataSourceFactory.setDefaultRequestProperties(httpHeaders);
-    }
-  }
-
-  private MediaSource buildMediaSource(
-      Uri uri, DataSource.Factory mediaDataSourceFactory, String formatHint) {
-    int type;
-    if (formatHint == null) {
-      type = Util.inferContentType(uri);
-    } else {
-      switch (formatHint) {
-        case FORMAT_SS:
-          type = C.CONTENT_TYPE_SS;
-          break;
-        case FORMAT_DASH:
-          type = C.CONTENT_TYPE_DASH;
-          break;
-        case FORMAT_HLS:
-          type = C.CONTENT_TYPE_HLS;
-          break;
-        case FORMAT_OTHER:
-          type = C.CONTENT_TYPE_OTHER;
-          break;
-        default:
-          type = -1;
-          break;
-      }
-    }
-    switch (type) {
-      case C.CONTENT_TYPE_SS:
-        return new SsMediaSource.Factory(
-                new DefaultSsChunkSource.Factory(mediaDataSourceFactory), mediaDataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(uri));
-      case C.CONTENT_TYPE_DASH:
-        return new DashMediaSource.Factory(
-                new DefaultDashChunkSource.Factory(mediaDataSourceFactory), mediaDataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(uri));
-      case C.CONTENT_TYPE_HLS:
-        return new HlsMediaSource.Factory(mediaDataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(uri));
-      case C.CONTENT_TYPE_OTHER:
-        return new ProgressiveMediaSource.Factory(mediaDataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(uri));
-      default:
-        {
-          throw new IllegalStateException("Unsupported type: " + type);
-        }
-    }
-  }
-
-  private void setUpVideoPlayer(ExoPlayer exoPlayer, QueuingEventSink eventSink) {
-    this.exoPlayer = exoPlayer;
-    this.eventSink = eventSink;
+    private void setUpVideoPlayer(ExoPlayer exoPlayer, QueuingEventSink eventSink) {
+        this.exoPlayer = exoPlayer;
+        this.eventSink = eventSink;
 
     eventChannel.setStreamHandler(
         new EventChannel.StreamHandler() {

@@ -75,6 +75,8 @@ abstract class TestHostVideoPlayerApi {
 
   TextureMessage create(CreateMessage msg);
 
+  TextureMessage multiCreate(List<CreateMessage?> msg);
+
   void dispose(TextureMessage msg);
 
   void setLooping(LoopingMessage msg);
@@ -130,6 +132,29 @@ abstract class TestHostVideoPlayerApi {
           assert(arg_msg != null,
               'Argument for dev.flutter.pigeon.AndroidVideoPlayerApi.create was null, expected non-null CreateMessage.');
           final TextureMessage output = api.create(arg_msg!);
+          return <Object?>[output];
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.AndroidVideoPlayerApi.multiCreate', codec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(channel, null);
+      } else {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(channel,
+                (Object? message) async {
+          assert(message != null,
+              'Argument for dev.flutter.pigeon.AndroidVideoPlayerApi.multiCreate was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final List<CreateMessage?>? arg_msg =
+              (args[0] as List<Object?>?)?.cast<CreateMessage?>();
+          assert(arg_msg != null,
+              'Argument for dev.flutter.pigeon.AndroidVideoPlayerApi.multiCreate was null, expected non-null List<CreateMessage?>.');
+          final TextureMessage output = api.multiCreate(arg_msg!);
           return <Object?>[output];
         });
       }

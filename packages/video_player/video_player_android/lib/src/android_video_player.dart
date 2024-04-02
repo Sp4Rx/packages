@@ -32,6 +32,22 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
 
   @override
   Future<int?> create(DataSource dataSource) async {
+    final TextureMessage response =
+        await _api.create(_createMessage(dataSource));
+    return response.textureId;
+  }
+
+  @override
+  Future<int?> multiCreate(List<DataSource> dataSources) async {
+    final List<CreateMessage> messages = <CreateMessage>[];
+    for (final DataSource dataSource in dataSources) {
+      messages.add(_createMessage(dataSource));
+    }
+    final TextureMessage response = await _api.multiCreate(messages);
+    return response.textureId;
+  }
+
+  CreateMessage _createMessage(DataSource dataSource) {
     String? asset;
     String? packageName;
     String? uri;
@@ -58,9 +74,7 @@ class AndroidVideoPlayer extends VideoPlayerPlatform {
       httpHeaders: httpHeaders,
       formatHint: formatHint,
     );
-
-    final TextureMessage response = await _api.create(message);
-    return response.textureId;
+    return message;
   }
 
   @override
